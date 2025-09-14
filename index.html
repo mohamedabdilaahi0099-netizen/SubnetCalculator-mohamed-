@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subnet Calculator - Fixed Auto Mode</title>
+<style>
+:root{--bg:#0f1724;--accent:#60a5fa;--muted:#93c5fd;}
+body{margin:0;font-family:Inter,Arial,sans-serif;background:#0f1724;color:#f0f6ff;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
+.wrap{max-width:1100px;width:100%;display:grid;grid-template-columns:420px 1fr;gap:20px;background:rgba(15,23,36,0.85);border-radius:16px;padding:20px;}
+.card{background:#111c33c9;border-radius:14px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.6);}
+h1{margin:0 0 12px;font-size:22px;}
+p{margin:0 0 12px;color:var(--muted);font-size:13px;}
+label{display:block;margin:6px 0;font-size:13px;color:#cfe6ff;}
+input,select{width:100%;padding:8px 10px;border-radius:8px;border:1px solid #333;background:#0f1724;color:#fff;}
+button{background:var(--accent);border:none;border-radius:8px;padding:10px 14px;cursor:pointer;font-weight:600;}
+button.secondary{background:#1b2b4d;color:var(--muted);}
+.controls{display:flex;gap:8px;margin-top:12px;}
+.results{margin-top:12px;padding:12px;border-radius:10px;background:#152544;}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+.stat{background:#1d3058;padding:8px;border-radius:8px;font-size:13px;}
+.stat strong{display:block;font-size:16px;}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px;}
+th,td{padding:6px;border-bottom:1px solid #223;}
+th{color:var(--muted);}
+footer{grid-column:1/-1;margin-top:12px;font-size:12px;color:var(--muted);text-align:center;}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Subnet Calculator</h1>
+    <p>Enter IP + CIDR. Auto mode calculates all network details correctly.</p>
+    <label>IP Address / Network</label>
+    <input id="ipInput" placeholder="e.g. 192.168.1.1/25">
+    <label>Calculation Mode</label>
+    <select id="mode">
+      <option value="auto">Auto (Just IP/CIDR)</option>
+      <option value="subnets">By Subnets</option>
+      <option value="hosts">By Hosts</option>
+    </select>
+    <div id="subnetsField" style="display:none">
+      <label>Number of Subnets</label>
+      <input id="numSubnets" placeholder="e.g. 4">
+    </div>
+    <div id="hostsField" style="display:none">
+      <label>Number of Hosts per Subnet</label>
+      <input id="numHosts" placeholder="e.g. 50">
+    </div>
+    <div class="controls">
+      <button id="calcBtn">Calculate</button>
+      <button class="secondary" id="resetBtn">Reset</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="outputArea">
+      <div class="results" id="summary" style="display:none">
+        <div class="grid">
+          <div class="stat"><strong id="classType">-</strong>Class</div>
+          <div class="stat"><strong id="origNet">-</strong>Original Network</div>
+          <div class="stat"><strong id="borrowed">-</strong>Bits Borrowed</div>
+          <div class="stat"><strong id="newMask">-</strong>New Mask</div>
+          <div class="stat"><strong id="hosts">-</strong>Hosts/Subnet</div>
+          <div class="stat"><strong id="numSubnetRes">-</strong>Number of Subnets</div>
+          <div class="stat"><strong id="increment">-</strong>Increment</div>
+          <div class="stat"><strong id="cidr">-</strong>CIDR</div>
+          <div class="stat"><strong id="firstUsable">-</strong>First Usable</div>
+          <div class="stat"><strong id="lastUsable">-</strong>Last Usable</div>
+          <div class="stat"><strong id="broadcast">-</strong>Broadcast</div>
+          <div class="stat"><strong id="netRange">-</strong>Network Range</div>
+        </div>
+        <div id="subnetList"></div>
+      </div>
+      <div id="empty">No result yet — enter IP and calculate.</div>
+    </div>
+    <footer>Auto mode now calculates borrowed bits, hosts, network ranges, and subnets correctly.</footer>
+  </div>
+</div>
+
+<script>
+function ipToInt(ip){const p=ip.split('.').map(x=>parseInt(x));if(p.length!=4||p.some(x=>isNaN(x)||x<0||x>255))return null;return ((p[0]<<24)>>>0)+((p[1]<<16)>>>0)+((p[2]<<8)>>>0)+p[3];}
+function intToIp(int){return[(int>>>24)&255,(int>>>16)&255,(int>>>8)&255,int&255].join('.');}
+function maskFromPrefix(p){return intToIp(p==0?0:(0xFFFFFFFF<<(32-p))>>>0);}
+function classfulPrefix(o){if(o>=1&&o<=126)return 8;if(o>=128&&o<=191)return 16;if(o>=192&&o<=223)return 24;return 24;}
+function parseNetworkInput(raw){raw=raw.trim();if(!raw)return null;if(raw.includes('/')){const [addr,pr]=raw.split('/');const ipInt=ipToInt(addr);const prefix=parseInt(pr);if(ipInt===null||isNaN(prefix))return null;const net=ipInt&((0xFFFFFFFF<<(32-prefix))>>>0);return {networkInt:net,prefix};} else {const ipInt=ipToInt(raw);if(ipInt===null)return null;const fo=parseInt(raw.split('.')[0]);const prefix=classfulPrefix(fo);const net=ipInt&((0xFFFFFFFF<<(32-prefix))>>>0);return {networkInt:net,prefix};}}
+
+function calcBySubnets(parsed,n){const needBits=Math.ceil(Math.log2(n));const newPrefix=parsed.prefix+needBits;const borrowed=needBits;const hosts=newPrefix<31? (2**(32-newPrefix))-2:0;const numSubs=2**needBits;return {newPrefix,borrowed,hosts,numSubs};}
+function calcByHosts(parsed,h){const y=Math.ceil(Math.log2(h+2));const newPrefix=32-y;const hosts=(2**y)-2;const borrowed=newPrefix-parsed.prefix;const numSubs=2**(newPrefix-parsed.prefix);return {newPrefix,borrowed,hosts,numSubs};}
+
+const ipInput=document.getElementById('ipInput');
+const mode=document.getElementById('mode');
+const numSubnets=document.getElementById('numSubnets');
+const numHosts=document.getElementById('numHosts');
+const subnetsField=document.getElementById('subnetsField');
+const hostsField=document.getElementById('hostsField');
+const calcBtn=document.getElementById('calcBtn');
+const resetBtn=document.getElementById('resetBtn');
+const summary=document.getElementById('summary');
+const empty=document.getElementById('empty');
+const classTypeEl=document.getElementById('classType');
+const origNetEl=document.getElementById('origNet');
+const borrowedEl=document.getElementById('borrowed');
+const newMaskEl=document.getElementById('newMask');
+const hostsEl=document.getElementById('hosts');
+const numSubnetRes=document.getElementById('numSubnetRes');
+const subnetList=document.getElementById('subnetList');
+const incrementEl=document.getElementById('increment');
+const cidrEl=document.getElementById('cidr');
+const firstUsableEl=document.getElementById('firstUsable');
+const lastUsableEl=document.getElementById('lastUsable');
+const broadcastEl=document.getElementById('broadcast');
+const netRangeEl=document.getElementById('netRange');
+
+mode.addEventListener('change',()=>{
+  subnetsField.style.display=mode.value==='subnets'?'block':'none';
+  hostsField.style.display=mode.value==='hosts'?'block':'none';
+});
+
+calcBtn.addEventListener('click',()=>{
+  const parsed=parseNetworkInput(ipInput.value);
+  if(!parsed){alert('Enter valid IP/network');return;}
+
+  let result={newPrefix:parsed.prefix,borrowed:0,hosts:(2**(32-parsed.prefix))-2,numSubs:1};
+
+  if(mode.value==='subnets'){
+    const n=parseInt(numSubnets.value);
+    if(!isNaN(n)&&n>0) result=calcBySubnets(parsed,n);
+  } else if(mode.value==='hosts'){
+    const h=parseInt(numHosts.value);
+    if(!isNaN(h)&&h>0) result=calcByHosts(parsed,h);
+  } else { // Auto mode: calculate borrowed bits from classful
+    const firstOctet = (parsed.networkInt>>>24)&255;
+    const classPrefix = classfulPrefix(firstOctet);
+    result.borrowed = parsed.prefix - classPrefix > 0 ? parsed.prefix - classPrefix : 0;
+    result.numSubs = 2**result.borrowed;
+    result.newPrefix = parsed.prefix;
+    result.hosts = parsed.prefix<31 ? (2**(32-parsed.prefix))-2 : 0;
+  }
+
+  const inc = 2**(32-result.newPrefix);
+  const classType=(parsed.prefix==8?'A':parsed.prefix==16?'B':parsed.prefix==24?'C':'Other');
+  classTypeEl.textContent=classType;
+  origNetEl.textContent=intToIp(parsed.networkInt)+'/'+parsed.prefix;
+  borrowedEl.textContent=result.borrowed;
+  newMaskEl.textContent=maskFromPrefix(result.newPrefix);
+  hostsEl.textContent=result.hosts;
+  numSubnetRes.textContent=result.numSubs;
+  incrementEl.textContent=inc;
+  cidrEl.textContent=intToIp(parsed.networkInt)+'/'+result.newPrefix;
+
+  const netAddr = parsed.networkInt;
+  const bcAddr = netAddr + inc -1;
+  firstUsableEl.textContent = result.hosts>0 ? intToIp(netAddr+1) : '-';
+  lastUsableEl.textContent = result.hosts>0 ? intToIp(bcAddr-1) : '-';
+  broadcastEl.textContent = intToIp(bcAddr);
+  netRangeEl.textContent = intToIp(netAddr)+' - '+intToIp(bcAddr);
+
+  // Subnet list (max 8)
+  let table='<table><tr><th>Subnet</th><th>Network</th><th>First</th><th>Last</th><th>Broadcast</th></tr>';
+  for(let i=0;i<Math.min(8,result.numSubs);i++){
+    const net=(parsed.networkInt+(i*inc))>>>0;
+    const bc=(net+inc-1)>>>0;
+    table+='<tr><td>'+ (i+1) +'</td><td>'+intToIp(net)+'/'+result.newPrefix+'</td><td>'+ (result.hosts>0 ? intToIp(net+1) : '-') +'</td><td>'+ (result.hosts>0 ? intToIp(bc-1) : '-') +'</td><td>'+intToIp(bc)+'</td></tr>';
+  }
+  if(result.numSubs>8)table+='<tr><td colspan=5>... showing 8 of '+result.numSubs+'</td></tr>';
+  table+='</table>';
+  subnetList.innerHTML=table;
+
+  summary.style.display='block';
+  empty.style.display='none';
+});
+
+resetBtn.addEventListener('click',()=>{
+  ipInput.value='';numSubnets.value='';numHosts.value='';
+  summary.style.display='none';empty.style.display='block';
+});
+</script>
+</body>
+</html>
